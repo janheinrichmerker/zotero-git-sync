@@ -1,4 +1,4 @@
-name: Export roadmap
+name: Export literature
 
 on:
   schedule:
@@ -44,5 +44,5 @@ jobs:
           exportPath: \"literature.md\"
           commitMessage: \"Update roadmap\"
           " > config.yaml
-      - name: "🧾 Export roadmap"
+      - name: "🧾 Export literature"
         run: pipenv run python -m zotero_git_sync
