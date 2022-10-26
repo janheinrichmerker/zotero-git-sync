@@ -67,9 +67,8 @@ def download_pdf(
         year = year[:2]
     title = normalize(item["data"]["title"])
     filename = f"{first_author_last_name}{year}-{title}.pdf"
-    print(filename)
 
-    # zotero.dump(pdf_id, filename=filename, path=git_export_path)
+    zotero.dump(pdf_id, filename=filename, path=git_export_path)
 
     return git_export_path / filename
 
