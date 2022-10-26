@@ -2,7 +2,7 @@ name: Export literature
 
 on:
   schedule:
-    - cron: "00 16 * * *"
+    - cron: "0 0,8,16 * * *" # every 8 hours
   workflow_dispatch:
 
 
