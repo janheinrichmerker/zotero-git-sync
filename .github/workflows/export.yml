@@ -1,0 +1,48 @@
+name: Export roadmap
+
+on:
+  schedule:
+    - cron: "00 16 * * *"
+  workflow_dispatch:
+
+
+jobs:
+  export:
+    name: "Export roadmap"
+    runs-on: ubuntu-20.04
+    steps:
+      - name: "📥 Check-out"
+        uses: actions/checkout@v2
+      - name: "🧰 Install Python"
+        uses: actions/setup-python@v1
+        with:
+          python-version: 3.9
+      - name: "🧰 Install pipx"
+        run: pip install --user pipx
+      - name: "🧰 Install Pipenv"
+        run: pipx install pipenv
+      - name: "🧰 Install dependencies"
+        run: pipenv install --deploy
+      - name: "🔑 Store host key"
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan ${{ secrets.GIT_SSH_HOST }} >> ~/.ssh/known_hosts
+      - name: "🔑 Store SSH key"
+        run: |
+          mkdir -p ~/.ssh
+          echo -e "${{ secrets.GIT_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+      - name: "🔑 Store config"
+        run: |
+          echo -e "
+          gitRepositoryUrl: \"${{ secrets.GIT_REPOSITORY_URL }}\"
+          gitName: \"${{ secrets.GIT_NAME }}\"
+          gitEmail: \"${{ secrets.GIT_EMAIL }}\"
+          zoteroApiKey: \"${{ secrets.ZOTERO_API_KEY }}\"
+          zoteroUserId: \"${{ secrets.ZOTERO_USER_ID }}\"
+          zoteroCollectionId: \"${{ secrets.ZOTERO_COLLECTION_ID }}\"
+          exportPath: \"literature.md\"
+          commitMessage: \"Update roadmap\"
+          " > config.yaml
+      - name: "🧾 Export roadmap"
+        run: pipenv run python -m zotero_git_sync
