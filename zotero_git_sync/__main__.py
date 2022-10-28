@@ -1,6 +1,5 @@
 from pathlib import Path
 from re import sub
-from sys import stdout
 from tempfile import TemporaryDirectory
 from typing import Optional
 
@@ -266,7 +265,10 @@ def _sync(
         repo.git.add(".")
         repo.git.commit(message=commit_message)
         print("Push changes.")
-        repo.git.push(output_stream=stdout.buffer)
+        repo.git.push()
+        # Push twice as sometimes if LFS needs to long,
+        # the Git push seems to be forgotten.
+        repo.git.push()
 
 
 def main() -> None:
