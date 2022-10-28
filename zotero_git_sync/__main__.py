@@ -231,8 +231,11 @@ def _sync(
         }
 
         # Move existing, unused files.
+        movable_old_paths = {
+            lock[item_id] for item_id in items if item_id in lock
+        }
         for path in existing_paths:
-            if path not in lock.values():
+            if path not in movable_old_paths:
                 _move_to_subfolder(path, subdir_path)
 
         # Move or download items
