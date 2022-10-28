@@ -266,12 +266,19 @@ def _sync(
         repo.git.commit(message=commit_message)
         repo.git.pull()
         print("Push changes.")
-        repo.git.push()
+        print(repo.git.push())
         # Push twice as sometimes if LFS needs to long,
         # the Git push seems to be forgotten.
-        repo.git.push()
+        print(repo.git.push())
         status = repo.git.status().strip()
-        if not status.endswith("nothing to commit, working tree clean"):
+        if not all(
+                status_line in status
+                for status_line in {
+                    "branch is up to date",
+                    "nothing to commit",
+                    "working tree clean"
+                }
+        ):
             print(status)
             raise RuntimeError("Push unsuccessful.")
 
