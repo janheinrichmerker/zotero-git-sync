@@ -270,6 +270,10 @@ def _sync(
         # Push twice as sometimes if LFS needs to long,
         # the Git push seems to be forgotten.
         repo.git.push()
+        status = repo.git.status().strip()
+        if not status.endswith("nothing to commit, working tree clean"):
+            print(status)
+            raise RuntimeError("Push unsuccessful.")
 
 
 def main() -> None:
