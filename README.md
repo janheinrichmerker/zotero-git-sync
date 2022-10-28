@@ -1,3 +1,8 @@
+[![CI](https://img.shields.io/github/workflow/status/heinrichreimer/zotero-git-sync/Export%20literature?label=export&style=flat-square)](https://github.com/heinrichreimer/zotero-git-sync/actions?query=workflow%3A"Export%20literature")
+[![Issues](https://img.shields.io/github/issues/heinrichreimer/zotero-git-sync?style=flat-square)](https://github.com/heinrichreimer/zotero-git-sync/issues)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/heinrichreimer/zotero-git-sync?style=flat-square)](https://github.com/heinrichreimer/zotero-git-sync/commits)
+[![License](https://img.shields.io/github/license/heinrichreimer/zotero-git-sync?style=flat-square)](LICENSE)
+
 # 📚 zotero-git-sync
 
 Simple CLI to sync a collection's Zotero publications to a Git repository.
