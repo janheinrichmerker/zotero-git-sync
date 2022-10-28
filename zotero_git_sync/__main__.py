@@ -263,13 +263,13 @@ def _sync(
             return
         print("Add and commit files to repository.")
         repo.git.add(".")
-        repo.git.commit(message=commit_message)
+        print(repo.git.commit(message=commit_message))
         repo.git.pull()
         print("Push changes.")
-        print(repo.git.push())
+        repo.git.push()
         # Push twice as sometimes if LFS needs to long,
         # the Git push seems to be forgotten.
-        print(repo.git.push())
+        repo.git.push()
         status = repo.git.status().strip()
         if not all(
                 status_line in status
@@ -279,8 +279,7 @@ def _sync(
                     "working tree clean"
                 }
         ):
-            print(status)
-            raise RuntimeError("Push unsuccessful.")
+            raise RuntimeError(f"Push unsuccessful: {status}")
 
 
 def main() -> None:
