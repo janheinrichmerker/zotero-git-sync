@@ -6,9 +6,11 @@ name = "pypi"
 [packages]
 gitpython = "*"
 pyyaml = "*"
-pyzotero = "*"
 tqdm = "*"
 unidecode = "*"
+ratelimit = "*"
+urllib3 = "*"
+requests = "*"
 
 [dev-packages]
 

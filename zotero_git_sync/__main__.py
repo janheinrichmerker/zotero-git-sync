@@ -1,21 +1,53 @@
-from math import tanh
 from pathlib import Path
 from re import sub
+from sys import stdout
 from tempfile import TemporaryDirectory
-from time import sleep
 from typing import Optional
 
-from git import PushInfo, Repo
-from pyzotero.zotero import Zotero
+from git import Repo
+from ratelimit import rate_limited, sleep_and_retry
+from requests import Session
+from requests.adapters import HTTPAdapter
 from tqdm.auto import tqdm
 from unidecode import unidecode
+from urllib3 import Retry
 from yaml import safe_load
 
-CONFIG_FILE = Path(__file__).parent.parent / "config.yaml"
-REQUEST_NUMBER = 0
+_CONFIG_FILE = Path(__file__).parent.parent / "config.yaml"
 
 
-def normalize(name: str) -> str:
+def _read_lock(lock_path: Path, export_path: Path) -> dict[str, Path]:
+    lock_path.touch()
+    with lock_path.open("rt") as file:
+        lock_lines = (
+            line.strip().split()
+            for line in file.readlines()
+        )
+        return {
+            item_id.strip(): export_path / file_name.strip()
+            for item_id, file_name in lock_lines
+        }
+
+
+def _write_lock(lock_path: Path, lock: dict[str, Path]) -> None:
+    lock_items = sorted(lock.items(), key=lambda item: item[0])
+    with lock_path.open("wt") as file:
+        for item_id, path in lock_items:
+            file_name = path.name
+            file.write(f"{item_id} {file_name}\n")
+
+
+def _item_id(item: dict) -> str:
+    return item["links"]["attachment"]["href"].split("/")[-1]
+
+
+def _item_has_pdf_attachment(item: dict) -> bool:
+    if "attachment" not in item["links"]:
+        return False
+    return item["links"]["attachment"]["attachmentType"] == "application/pdf"
+
+
+def _normalize_name(name: str) -> str:
     name = unidecode(name)
     name = name.lower()
     name = name.replace("\n", "-")
@@ -34,31 +66,14 @@ def normalize(name: str) -> str:
     return name
 
 
-def download_pdf(
-        zotero: Zotero,
-        git_export_path: Path,
-        item: dict,
-        old_path: Optional[Path],
-        git_repository: Repo,
-        git_repository_path: Path,
-) -> Optional[Path]:
-    global REQUEST_NUMBER
-
-    if "attachment" not in item["links"]:
-        return None
-    if item["links"]["attachment"]["attachmentType"] != "application/pdf":
-        return None
-
-    pdf_url = item["links"]["attachment"]["href"]
-    pdf_id = pdf_url.split("/")[-1]
-
+def _item_path(item: dict, export_path: Path) -> Path:
     first_author_last_names = [
         creator["lastName"] if "lastName" in creator else creator["name"]
         for creator in item["data"]["creators"]
         if creator["creatorType"] == "author"
     ]
     first_author_last_names.append("noauthor")
-    first_author_last_name = normalize(first_author_last_names[0])
+    first_author_last_name = _normalize_name(first_author_last_names[0])
     date: str
     if "parsedDate" in item["meta"]:
         date = item["meta"]["parsedDate"]
@@ -73,36 +88,87 @@ def download_pdf(
         year = date
     if len(year) > 2:
         year = year[-2:]
-    title = normalize(item["data"]["title"])
+    title = _normalize_name(item["data"]["title"])
     file_name = f"{first_author_last_name}{year}-{title}.pdf"
-    new_path = git_export_path / file_name
-
-    if old_path is not None and old_path.exists():
-        # File already exists. Just rename it if needed.
-        if old_path != new_path:
-            if new_path.exists():
-                git_repository.index.remove([
-                    str(new_path.relative_to(git_repository_path)),
-                ], working_tree=True)
-            git_repository.index.move([
-                str(old_path.relative_to(git_repository_path)),
-                str(new_path.relative_to(git_repository_path)),
-            ])
-    else:
-        with new_path.open("wb") as file:
-            file.write(
-                zotero.file(pdf_id)
-            )
-            sleep(10 * tanh(REQUEST_NUMBER / 10))
-            REQUEST_NUMBER += 1
-        git_repository.index.add([
-            str(new_path.relative_to(git_repository_path))
-        ])
-
-    return new_path
+    return export_path / file_name
 
 
-def sync(
+def _move_to_subfolder(path: Path, subdir_path: Path) -> None:
+    new_path = subdir_path / path.name
+    if new_path.exists():
+        increment = 1
+        while new_path.exists():
+            new_path = subdir_path / f"{path.stem}.{increment}{path.suffix}"
+            increment += 1
+    path.rename(new_path)
+
+
+@sleep_and_retry
+@rate_limited(calls=5, period=15)
+def _download_pdf(
+        session: Session,
+        zotero_api_key: str,
+        zotero_user_id: str,
+        item: dict,
+        item_path: Path,
+) -> None:
+    pdf_url = item["links"]["attachment"]["href"]
+    pdf_id = pdf_url.split("/")[-1]
+
+    response = session.get(
+        url=f"https://api.zotero.org/"
+            f"users/{zotero_user_id}/"
+            f"items/{pdf_id.upper()}/file",
+        headers={
+            "Zotero-API-Version": "3",
+            "Authorization": f"Bearer {zotero_api_key}",
+        },
+    )
+    with item_path.open("wb") as file:
+        file.write(response.content)
+
+
+def _get_items(
+        session: Session,
+        zotero_api_key: str,
+        zotero_user_id: str,
+        zotero_collection_id: str,
+) -> dict[str, dict]:
+    url = (
+        f"https://api.zotero.org/users/{zotero_user_id}/"
+        f"collections/{zotero_collection_id}/items/top"
+    )
+    headers = {
+        "Zotero-API-Version": "3",
+        "Authorization": f"Bearer {zotero_api_key}",
+    }
+    total_items_headers = session.get(url, headers=headers).headers
+    total_items = int(total_items_headers["Total-Results"])
+
+    progress = tqdm(
+        total=total_items,
+        desc="Get collection items",
+        unit="item",
+    )
+    limit = 10
+    all_items = {}
+    for start in range(0, total_items, limit):
+        items_response = session.get(
+            f"{url}?start={start}&limit={limit}",
+            headers=headers,
+        )
+        items_response_json = items_response.json()
+        progress.update(len(items_response_json))
+        all_items.update({
+            _item_id(item): item
+            for item in items_response.json()
+            if _item_has_pdf_attachment(item)
+        })
+
+    return all_items
+
+
+def _sync(
         zotero_api_key: str,
         zotero_user_id: str,
         zotero_collection_id: str,
@@ -112,123 +178,99 @@ def sync(
         export_path: str,
         commit_message: str,
 ) -> None:
-    global REQUEST_NUMBER
-    REQUEST_NUMBER = 0
+    session = Session()
+    retries = Retry(
+        total=5,
+        backoff_factor=1,
+        status_forcelist=[502, 503, 504],
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retries))
 
     with TemporaryDirectory() as temp_dir:
-        git_repository_path = Path(temp_dir)
-        git_repository = Repo.clone_from(
+        repo_path = Path(temp_dir)
+        repo = Repo.clone_from(
             git_repository_url,
-            git_repository_path,
-            multi_options=["--depth", "1"]
+            repo_path,
+            depth=1,
         )
-        with git_repository.config_writer() as git_config:
+        with repo.config_writer() as git_config:
             git_config.set_value("user", "name", git_name)
             git_config.set_value("user", "email", git_email)
 
         # Make directories.
-        git_export_path = git_repository_path / export_path
-        git_export_path.mkdir(exist_ok=True)
-        other_dir_path = git_export_path / "other"
-        other_dir_path.mkdir(exist_ok=True)
+        export_path = repo_path / export_path
+        export_path.mkdir(exist_ok=True)
+        subdir_path = export_path / "other"
+        subdir_path.mkdir(exist_ok=True)
 
-        # Setup API.
-        zotero = Zotero(zotero_user_id, "user", zotero_api_key)
-
-        # Get collection items.
-        top_items = zotero.collection_items_top(zotero_collection_id)
-        top_items_id = [
-            (item, item["links"]["attachment"]["href"].split("/")[-1])
-            for item in top_items
-            if "attachment" in item["links"] and
-               item["links"]["attachment"]["attachmentType"] ==
-               "application/pdf"
-        ]
+        # Find and read lock file.
+        lock_path = export_path / ".zotero"
+        lock = _read_lock(lock_path, export_path)
 
         # Find old files.
-        paths_old: set[Path] = {
+        existing_paths: set[Path] = {
             path
-            for path in git_export_path.iterdir()
+            for path in export_path.iterdir()
             if path.is_file() and path.suffix == ".pdf"
         }
 
-        # Find old lock file.
-        lockfile_path = git_export_path / ".zotero"
-        lockfile_path.touch()
-        with lockfile_path.open("rt") as file:
-            lock_old: dict[str, Path] = {}
-            for line in file.readlines():
-                item_id, filename = line.strip().split()
-                lock_old[item_id] = git_export_path / filename
+        # Get collection items with PDFs.
+        items = _get_items(
+            session,
+            zotero_api_key,
+            zotero_user_id,
+            zotero_collection_id,
+        )
 
-        # Download missing files.
-        id_paths_new: dict[str, Path] = {
-            item_id: download_pdf(
-                zotero,
-                git_export_path,
-                item,
-                lock_old.get(item_id, None),
-                git_repository,
-                git_repository_path,
+        # Compute mappings from old to new paths.
+        item_paths: dict[str, tuple[Optional[Path], Path]] = {
+            item_id: (
+                lock.get(item_id, None),
+                _item_path(item, export_path)
             )
-            for item, item_id in tqdm(
-                top_items_id,
+            for item_id, item in items.items()
+        }
+
+        # Move existing, unused files.
+        for path in existing_paths:
+            if path not in lock.values():
+                _move_to_subfolder(path, subdir_path)
+
+        # Move or download items
+        for item_id, (old_path, new_path) in tqdm(
+                item_paths.items(),
                 desc="Download PDFs",
                 unit="file",
-            )
-        }
-        id_paths_new = {
-            item_id: path
-            for item_id, path in id_paths_new.items()
-            if path is not None
-        }
+        ):
+            if old_path is not None:
+                # Move file.
+                old_path.rename(new_path)
+            else:
+                # Download file.
+                _download_pdf(
+                    session,
+                    zotero_api_key,
+                    zotero_user_id,
+                    items[item_id],
+                    new_path
+                )
 
-        # Move other literature to subfolder
-        paths_renamed: set[Path] = {
-            path
-            for item_id, path in lock_old.items()
-            if item_id in id_paths_new.keys()
-        }
-        paths_other = paths_old - paths_renamed
-        for old_path in paths_other:
-            new_path = other_dir_path / old_path.name
-            if old_path != new_path:
-                if new_path.exists():
-                    num = 1
-                    while new_path.exists():
-                        new_path = (
-                                other_dir_path /
-                                f"{old_path.stem}.{num}{old_path.suffix}"
-                        )
-                        num += 1
-                    git_repository.index.remove([
-                        str(new_path.relative_to(git_repository_path)),
-                    ], working_tree=True)
-                git_repository.index.move([
-                    str(old_path.relative_to(git_repository_path)),
-                    str(new_path.relative_to(git_repository_path)),
-                ])
+        # Write lock file
+        lock = {item_id: path for item_id, (_, path) in item_paths.items()}
+        _write_lock(lock_path, lock)
 
-        with lockfile_path.open("wt") as file:
-            for item_id, old_path in id_paths_new.items():
-                file_name = old_path.name
-                file.write(f"{item_id} {file_name}\n")
-        git_repository.index.add([
-            str(lockfile_path.relative_to(git_repository_path))
-        ])
-
-        if not git_repository.is_dirty():
-            print("Nothing changed.")
+        if not repo.is_dirty():
+            # Nothing has changed.
             return
-
-        git_repository.index.commit(commit_message)
-        git_push_info: PushInfo = git_repository.remotes.origin.push()[0]
-        print(git_push_info.flags)
-        assert git_push_info.flags == PushInfo.FAST_FORWARD
+        print("Add and commit files to repository.")
+        repo.git.add(".")
+        repo.git.commit(message=commit_message)
+        print("Push changes.")
+        repo.git.push(output_stream=stdout.buffer)
 
 
 def main() -> None:
-    with CONFIG_FILE.open("r") as file:
+    with _CONFIG_FILE.open("r") as file:
         config = safe_load(file)
     zotero_api_key = config["zoteroApiKey"]
     zotero_user_id = config["zoteroUserId"]
@@ -238,7 +280,7 @@ def main() -> None:
     git_email = config["gitEmail"]
     export_path = config["exportPath"]
     commit_message = config["commitMessage"]
-    sync(
+    _sync(
         zotero_api_key,
         zotero_user_id,
         zotero_collection_id,
