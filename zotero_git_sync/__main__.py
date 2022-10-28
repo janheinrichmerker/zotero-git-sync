@@ -92,7 +92,7 @@ def _item_path(item: dict, export_path: Path) -> Path:
     return export_path / file_name
 
 
-def _move_to_subfolder(path: Path, subdir_path: Path) -> None:
+def _move_to_subdir(path: Path, subdir_path: Path) -> None:
     new_path = subdir_path / path.name
     if new_path.exists():
         increment = 1
@@ -222,43 +222,51 @@ def _sync(
         )
 
         # Compute mappings from old to new paths.
-        item_paths: dict[str, tuple[Optional[Path], Path]] = {
-            item_id: (
+        item_paths: list[tuple[str, Optional[Path], Path]] = [
+            (
+                item_id,
                 lock.get(item_id, None),
                 _item_path(item, export_path)
             )
             for item_id, item in items.items()
-        }
+        ]
 
-        # Move existing, unused files.
-        movable_old_paths = {
-            lock[item_id] for item_id in items if item_id in lock
+        # Move or rename existing files.
+        move_paths = {
+            old_path: new_path
+            for item_id, old_path, new_path in item_paths
+            if old_path is not None
         }
         for path in existing_paths:
-            if path not in movable_old_paths:
-                _move_to_subfolder(path, subdir_path)
-
-        # Move or download items
-        for item_id, (old_path, new_path) in tqdm(
-                item_paths.items(),
-                desc="Download PDFs",
-                unit="file",
-        ):
-            if old_path is not None:
-                # Move file.
-                old_path.rename(new_path)
+            if path in move_paths:
+                # Still in use, rename.
+                path.rename(move_paths[path])
             else:
-                # Download file.
-                _download_pdf(
-                    session,
-                    zotero_api_key,
-                    zotero_user_id,
-                    items[item_id],
-                    new_path
-                )
+                # No corresponding item, move to subdir.
+                _move_to_subdir(path, subdir_path)
+
+        # Download files.
+        download_items = [
+            (item_id, new_path)
+            for item_id, (old_path, new_path) in item_paths
+            if old_path is not None
+        ]
+        download_items = tqdm(
+            download_items,
+            desc="Download PDFs",
+            unit="file",
+        )
+        for item_id, new_path in download_items:
+            _download_pdf(
+                session,
+                zotero_api_key,
+                zotero_user_id,
+                items[item_id],
+                new_path
+            )
 
         # Write lock file
-        lock = {item_id: path for item_id, (_, path) in item_paths.items()}
+        lock = {item_id: new_path for item_id, _, new_path in item_paths}
         _write_lock(lock_path, lock)
 
         if not repo.is_dirty():
