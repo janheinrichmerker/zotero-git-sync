@@ -248,7 +248,7 @@ def _sync(
         # Download files.
         download_items = [
             (item_id, new_path)
-            for item_id, (old_path, new_path) in item_paths
+            for item_id, old_path, new_path in item_paths
             if old_path is not None
         ]
         download_items = tqdm(
