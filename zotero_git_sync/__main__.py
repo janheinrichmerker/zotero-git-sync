@@ -264,6 +264,7 @@ def _sync(
         print("Add and commit files to repository.")
         repo.git.add(".")
         repo.git.commit(message=commit_message)
+        repo.git.pull()
         print("Push changes.")
         repo.git.push()
         # Push twice as sometimes if LFS needs to long,
