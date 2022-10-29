@@ -230,6 +230,8 @@ def _sync(
             )
             for item_id, item in items.items()
         ]
+        for a, b, c in item_paths:
+            print(a, b.name if b is not None else None, c.name)
 
         # Move or rename existing files.
         move_paths = {
@@ -249,7 +251,7 @@ def _sync(
         download_items = [
             (item_id, new_path)
             for item_id, old_path, new_path in item_paths
-            if old_path is not None
+            if old_path is None
         ]
         download_items = tqdm(
             download_items,
