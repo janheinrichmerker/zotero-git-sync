@@ -269,15 +269,14 @@ def _sync(
         lock = {item_id: new_path for item_id, _, new_path in item_paths}
         _write_lock(lock_path, lock)
 
-        if not repo.is_dirty(
-                index=True,
-                working_tree=True,
-                untracked_files=True,
-        ):
+        if not repo.is_dirty(untracked_files=True):
             # Nothing has changed.
             return
+        print("Add and commit files to repository.")
         repo.git.add(".")
+        print(repo.git.commit(message=commit_message))
         repo.git.pull()
+        print("Push changes.")
         repo.git.push()
         # Push twice as sometimes if LFS needs to long,
         # the Git push seems to be forgotten.
