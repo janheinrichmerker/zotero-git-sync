@@ -42,7 +42,7 @@ jobs:
           zoteroUserId: \"${{ secrets.ZOTERO_USER_ID }}\"
           zoteroCollectionId: \"${{ secrets.ZOTERO_COLLECTION_ID }}\"
           exportPath: \"literature.md\"
-          commitMessage: \"Update roadmap\"
+          commitMessage: \"Update literature\"
           " > config.yaml
       - name: "🧾 Export literature"
         run: pipenv run python -m zotero_git_sync
