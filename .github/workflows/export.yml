@@ -41,7 +41,7 @@ jobs:
           zoteroApiKey: \"${{ secrets.ZOTERO_API_KEY }}\"
           zoteroUserId: \"${{ secrets.ZOTERO_USER_ID }}\"
           zoteroCollectionId: \"${{ secrets.ZOTERO_COLLECTION_ID }}\"
-          exportPath: \"literature.md\"
+          exportPath: \"literature\"
           commitMessage: \"Update literature\"
           " > config.yaml
       - name: "🧾 Export literature"
