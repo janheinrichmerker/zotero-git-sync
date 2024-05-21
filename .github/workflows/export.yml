@@ -45,4 +45,6 @@ jobs:
           commitMessage: \"Update literature\"
           " > config.yaml
       - name: "🧾 Export literature"
+        env:
+          GIT_CLONE_PROTECTION_ACTIVE: false
         run: pipenv run python -m zotero_git_sync
