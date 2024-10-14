@@ -1,7 +1,7 @@
-[![CI](https://img.shields.io/github/actions/workflow/status/heinrichreimer/zotero-git-sync/export.yml?branch=main&label=export&style=flat-square)](https://github.com/heinrichreimer/zotero-git-sync/actions/workflows/export.yml)
-[![Issues](https://img.shields.io/github/issues/heinrichreimer/zotero-git-sync?style=flat-square)](https://github.com/heinrichreimer/zotero-git-sync/issues)
-[![Commit activity](https://img.shields.io/github/commit-activity/m/heinrichreimer/zotero-git-sync?style=flat-square)](https://github.com/heinrichreimer/zotero-git-sync/commits)
-[![License](https://img.shields.io/github/license/heinrichreimer/zotero-git-sync?style=flat-square)](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/janheinrichmerker/zotero-git-sync/export.yml?branch=main&label=export&style=flat-square)](https://github.com/janheinrichmerker/zotero-git-sync/actions/workflows/export.yml)
+[![Issues](https://img.shields.io/github/issues/janheinrichmerker/zotero-git-sync?style=flat-square)](https://github.com/janheinrichmerker/zotero-git-sync/issues)
+[![Commit activity](https://img.shields.io/github/commit-activity/m/janheinrichmerker/zotero-git-sync?style=flat-square)](https://github.com/janheinrichmerker/zotero-git-sync/commits)
+[![License](https://img.shields.io/github/license/janheinrichmerker/zotero-git-sync?style=flat-square)](LICENSE)
 
 # 📚 zotero-git-sync
 
